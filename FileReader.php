@@ -15,6 +15,7 @@ class FileReader
         }
         $lengths = fgetcsv($handle, 0, ' ');
         $scores = fgetcsv($handle, 0, ' ');
+        $uniqueScores = array_unique($scores);
         $data = [];
         for($i = 0; $i < $lengths[1]; $i++) {
             $first = fgetcsv($handle, 0, ' ');
@@ -34,6 +35,7 @@ class FileReader
             'bookCount' => $lengths[0],
             'libraryCount' => $lengths[1],
             'days' => $lengths[2],
+            'scoreSame' => count($uniqueScores) == 1,
             'data' => $data
         ];
     }

@@ -6,6 +6,7 @@ require 'FileWriter.php';
 class Main
 {
     private $libraries = [];
+    private $unusedlibraries = [];
 
     private $signQueue = 0;
     private $signedLibraries = [];
@@ -14,32 +15,47 @@ class Main
     private $days;
     private $currentDay;
 
+    private $scoreSame;
+
+    private $maxWait = 0;
+
     public function run($argv)
     {
         $inputFile = $argv[1];
         $outputFile = $argv[2];
         $reader = new FileReader();
         $data = $reader->readFile($inputFile);
+        $this->scoreSame = $data['scoreSame'];
         $this->days = $data['days'];
         $this->libraries = $data['data'];
+        $this->unusedlibraries = $data['data'];
 
-        for ($this->currentDay = 0; $this->currentDay < $this->days && count($this->libraries) !== count($this->signedLibraries); $this->currentDay++) {
+        foreach ($this->libraries as $lib){
+            if($this->maxWait < $lib->getSignupTime()){
+                $this->maxWait = $lib->getSignupTime();
+            }
+        }
+
+        for ($this->currentDay = 0; $this->currentDay < $this->days; $this->currentDay++) {
+            if($this->currentDay % 100 == 0){
             echo 'Day: ' . $this->currentDay . "\n";
+            }
             if($this->signQueue <= $this->currentDay){
                 $library = $this->getBestLibrary();
-                $this->signQueue += $library->getSignupTime();
-                $this->signedLibraries[] = $library;
-                $library->setIsSigned(true);
-            }
+                if($library){
+                    $this->signQueue += $library->getSignupTime();
+                    $this->signedLibraries[] = $library;
+                    $library->setIsSigned(true);
+                    unset($this->unusedlibraries[$library->getId()]);
 
-            foreach ($this->signedLibraries as $library){
-                if($this->currentDay + $library->getSignupTime() < $this->days){
-                    $removeDuplicateBooks = $this->removeDuplicateBooks($library->getBooksByScore());
-                    $booksToShip = array_slice($removeDuplicateBooks, 0, $library->getBooksPerDay());
 
-                    $library->addBooksToShip($booksToShip);
-                    foreach ($booksToShip as $book){
-                        $this->shippedBooks[$book->getId()] = $book->getId();
+
+                    $removeDuplicateBooks = $this->removeDuplicateBooks(array_slice($library->getBooksByScore(), 0, ($this->days - $this->currentDay - $library->getSignupTime()) * $library->getBooksPerDay()));
+
+                    $library->addBooksToShip($removeDuplicateBooks);
+                    foreach ($removeDuplicateBooks as $book){
+                        $bookid = $book->getId();
+                        $this->shippedBooks[$bookid] = $bookid;
                     }
                 }
             }
@@ -50,21 +66,27 @@ class Main
         $writer->write($outputFile, $this->signedLibraries);
     }
 
-    public function getBestLibrary(): Library
+    public function getBestLibrary(): ?Library
     {
-        $libs = $this->removeDuplicateLibraries($this->libraries);
+        $libs = $this->unusedlibraries;
 
-        $that = $this;
-        usort($libs, static function($a, $b) use ($that) {
-            $adays = ($that->days - $a->getSignupTime() - $that->currentDay);
-            $ascore = $that->getScoreByDays($adays * $a->getBooksPerDay(), $that->removeDuplicateBooks($a->getBooksByScore()));
+        $score = 0;
+        $lib = null;
 
-            $bdays = ($that->days - $b->getSignupTime() - $that->currentDay);
-            $bscore = $that->getScoreByDays($bdays * $b->getBooksPerDay(), $that->removeDuplicateBooks($b->getBooksByScore()));
-
-            return $bscore <=> $ascore;
-        });
-        return $libs[0];
+        foreach ($libs as $a) {
+            $adays = ($this->days - $a->getSignupTime() - $this->currentDay);
+            if($this->scoreSame){
+                $ascore = $adays * $a->getBooksPerDay() * count($this->removeDuplicateBooks($a->getBooksByScore()));
+            } else {
+                $ascore = $this->getScoreByDays($adays * $a->getBooksPerDay(), $this->removeDuplicateBooks($a->getBooksByScore())) / $a->getSignupTime() * count($this->removeDuplicateBooks($a->getBooksByScore()));
+//                $ascore = 1 / $a->getSignupTime();
+            }
+            if($ascore > $score){
+                $score = $ascore;
+                $lib = $a;
+            }
+        }
+        return $lib;
     }
 
     public function getScoreByDays($days, $books)
